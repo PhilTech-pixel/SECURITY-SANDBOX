@@ -1,0 +1,544 @@
+{
+  "version": "2.0",
+  "summary": {
+    "title": "Cytonn SSO Threat Model",
+    "owner": "Philip Manga",
+    "description": "STRIDE threat model for the Cytonn in-house Single Sign-On system covering login, password renewal, session management, SLO, and connected applications.",
+    "id": 1
+  },
+  "detail": {
+    "contributors": [
+      { "name": "Philip Manga" }
+    ],
+    "diagrams": [
+      {
+        "id": 0,
+        "title": "Cytonn SSO Data Flow",
+        "diagramType": "STRIDE",
+        "placeholder": "New STRIDE diagram description",
+        "thumbnail": "",
+        "version": "2.0",
+        "cells": [
+
+          {
+            "type": "tm.Process",
+            "id": "proc-1",
+            "label": "SSO Portal\n(sso.cytonn.com)",
+            "x": 320,
+            "y": 220,
+            "width": 160,
+            "height": 60,
+            "zIndex": 10,
+            "data": {
+              "type": "tm.Process",
+              "name": "SSO Portal",
+              "description": "Laravel application handling authentication, session management, and token issuance.",
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "privilegeLevel": "High",
+              "handlesCardPayment": false,
+              "handlesGoodsOrServices": false,
+              "isWebApplication": true,
+              "isSanitizingInput": true,
+              "isEncryptingData": true,
+              "threats": [
+                {
+                  "id": "t-01",
+                  "title": "Brute force on login endpoint",
+                  "type": "Spoofing",
+                  "status": "Open",
+                  "severity": "High",
+                  "description": "An attacker submits unlimited credential combinations against the login endpoint due to missing rate limiting.",
+                  "mitigation": "Implement rate limiting (5 requests/15 min per account), progressive account lockout after 10 failures, CAPTCHA after 3 failures.",
+                  "modelType": "STRIDE"
+                },
+                {
+                  "id": "t-02",
+                  "title": "Credential stuffing attack",
+                  "type": "Spoofing",
+                  "status": "Open",
+                  "severity": "High",
+                  "description": "Attacker uses leaked credential pairs from other breaches to authenticate against the SSO portal.",
+                  "mitigation": "Integrate HaveIBeenPwned API check on login and password reset. Enforce per-IP rate limiting. Block known malicious IPs at WAF.",
+                  "modelType": "STRIDE"
+                },
+                {
+                  "id": "t-03",
+                  "title": "Username enumeration via error messages",
+                  "type": "Information Disclosure",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "description": "Differentiated error messages for invalid username vs wrong password allow attackers to enumerate valid accounts.",
+                  "mitigation": "Return identical generic error message regardless of whether username or password is incorrect.",
+                  "modelType": "STRIDE"
+                },
+                {
+                  "id": "t-04",
+                  "title": "Session replay after logout",
+                  "type": "Spoofing",
+                  "status": "Open",
+                  "severity": "Critical",
+                  "description": "Laravel session cookies are not invalidated server-side on logout. A stolen cookie can be replayed days or weeks later.",
+                  "mitigation": "Destroy server-side session record on logout. Set HttpOnly, Secure, SameSite=Strict. Enforce absolute TTL of 8 hours and idle timeout of 30 minutes.",
+                  "modelType": "STRIDE"
+                },
+                {
+                  "id": "t-05",
+                  "title": "Session fixation attack",
+                  "type": "Spoofing",
+                  "status": "Open",
+                  "severity": "High",
+                  "description": "Attacker fixes a known session ID before authentication to hijack the session after login.",
+                  "mitigation": "Rotate session token on every login, MFA confirmation, and privilege change.",
+                  "modelType": "STRIDE"
+                },
+                {
+                  "id": "t-06",
+                  "title": "Privilege escalation via session manipulation",
+                  "type": "Elevation of Privilege",
+                  "status": "Open",
+                  "severity": "High",
+                  "description": "A low-privileged user manipulates session claims to gain admin-level access.",
+                  "mitigation": "Enforce RBAC on every request server-side. Require MFA step-up for sensitive actions. Sign and validate session claims.",
+                  "modelType": "STRIDE"
+                }
+              ]
+            }
+          },
+
+          {
+            "type": "tm.Process",
+            "id": "proc-2",
+            "label": "Password Renewal\nEndpoint",
+            "x": 320,
+            "y": 380,
+            "width": 160,
+            "height": 60,
+            "zIndex": 10,
+            "data": {
+              "type": "tm.Process",
+              "name": "Password Renewal Endpoint",
+              "description": "Handles password reset requests, token generation, MFA verification, and new password acceptance.",
+              "outOfScope": false,
+              "isWebApplication": true,
+              "isSanitizingInput": true,
+              "threats": [
+                {
+                  "id": "t-07",
+                  "title": "No rate limiting on password renewal",
+                  "type": "Denial of Service",
+                  "status": "Open",
+                  "severity": "Critical",
+                  "description": "The password renewal endpoint accepts unlimited requests. Attackers can enumerate passwords by observing response differences.",
+                  "mitigation": "Limit to 3 reset requests per account per hour. Return generic response regardless of whether email exists.",
+                  "modelType": "STRIDE"
+                },
+                {
+                  "id": "t-08",
+                  "title": "Reset token reuse after first use",
+                  "type": "Tampering",
+                  "status": "Open",
+                  "severity": "High",
+                  "description": "Reset tokens are not invalidated after first use, allowing an attacker who intercepts the link to reuse it.",
+                  "mitigation": "Invalidate token immediately on first use. Expire token after 15 minutes regardless of use.",
+                  "modelType": "STRIDE"
+                },
+                {
+                  "id": "t-09",
+                  "title": "MFA bypass during password reset",
+                  "type": "Elevation of Privilege",
+                  "status": "Open",
+                  "severity": "Critical",
+                  "description": "Password reset does not require MFA verification, allowing account takeover via email compromise alone.",
+                  "mitigation": "Require TOTP or push notification confirmation before displaying new password form. Failed MFA counts against lockout threshold.",
+                  "modelType": "STRIDE"
+                },
+                {
+                  "id": "t-10",
+                  "title": "Weak or breached new password accepted",
+                  "type": "Spoofing",
+                  "status": "Open",
+                  "severity": "High",
+                  "description": "No password policy or breach check on the renewal endpoint allows users to set weak or previously compromised passwords.",
+                  "mitigation": "Enforce minimum 12 characters with complexity. Check SHA-1 hash prefix against HaveIBeenPwned API. Reject breached passwords with count shown.",
+                  "modelType": "STRIDE"
+                },
+                {
+                  "id": "t-11",
+                  "title": "Reset email reveals account existence",
+                  "type": "Information Disclosure",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "description": "Server response differs when a valid vs invalid email is submitted for reset, enabling account enumeration.",
+                  "mitigation": "Always return the same response: 'If this email exists, you will receive a reset link.'",
+                  "modelType": "STRIDE"
+                }
+              ]
+            }
+          },
+
+          {
+            "type": "tm.Process",
+            "id": "proc-3",
+            "label": "Single Logout\n(SLO)",
+            "x": 560,
+            "y": 220,
+            "width": 160,
+            "height": 60,
+            "zIndex": 10,
+            "data": {
+              "type": "tm.Process",
+              "name": "Single Logout",
+              "description": "Handles logout propagation across all connected applications via back-channel and front-channel SLO.",
+              "outOfScope": false,
+              "threats": [
+                {
+                  "id": "t-12",
+                  "title": "Orphaned sessions after logout",
+                  "type": "Spoofing",
+                  "status": "Open",
+                  "severity": "Critical",
+                  "description": "Logging out of SSO clears only the portal session. Connected apps retain active sessions and continue to authenticate the user.",
+                  "mitigation": "Implement back-channel SLO. IdP issues signed JWT logout token to all registered relying parties on logout. Each app validates and destroys mapped sessions.",
+                  "modelType": "STRIDE"
+                },
+                {
+                  "id": "t-13",
+                  "title": "Forged logout token",
+                  "type": "Tampering",
+                  "status": "Open",
+                  "severity": "High",
+                  "description": "An attacker crafts a fake JWT logout token to force logout of targeted users (mass logout DoS).",
+                  "mitigation": "Sign JWT logout tokens with RS256. Include exp and jti claims. Connected apps must verify signature against IdP public key before processing.",
+                  "modelType": "STRIDE"
+                },
+                {
+                  "id": "t-14",
+                  "title": "SLO delivery failure goes undetected",
+                  "type": "Repudiation",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "description": "If back-channel logout notification fails silently, orphaned sessions persist with no alert raised.",
+                  "mitigation": "Log SLO delivery outcome per app. Alert security team on SLO timeout or failure. Implement retry logic for failed deliveries.",
+                  "modelType": "STRIDE"
+                }
+              ]
+            }
+          },
+
+          {
+            "type": "tm.Store",
+            "id": "store-1",
+            "label": "Session Store\n/ Database",
+            "x": 320,
+            "y": 60,
+            "width": 160,
+            "height": 60,
+            "zIndex": 10,
+            "data": {
+              "type": "tm.Store",
+              "name": "Session Store / Database",
+              "description": "Stores session records, user credentials, and audit logs.",
+              "outOfScope": false,
+              "isALog": false,
+              "storesCredentials": true,
+              "storesInventory": false,
+              "isEncryptingData": true,
+              "threats": [
+                {
+                  "id": "t-15",
+                  "title": "Session token leaked in application logs",
+                  "type": "Information Disclosure",
+                  "status": "Open",
+                  "severity": "High",
+                  "description": "Session tokens or credentials inadvertently logged in application or access logs.",
+                  "mitigation": "Sanitize all logs to strip tokens, passwords, and PII. Never log raw session IDs or credentials.",
+                  "modelType": "STRIDE"
+                },
+                {
+                  "id": "t-16",
+                  "title": "Expired sessions not purged",
+                  "type": "Denial of Service",
+                  "status": "Open",
+                  "severity": "Low",
+                  "description": "Accumulation of expired session records in the store degrades performance and increases storage attack surface.",
+                  "mitigation": "Implement scheduled cleanup of expired session records. Enforce TTL at store level.",
+                  "modelType": "STRIDE"
+                }
+              ]
+            }
+          },
+
+          {
+            "type": "tm.Actor",
+            "id": "actor-1",
+            "label": "User\n(Browser)",
+            "x": 80,
+            "y": 220,
+            "width": 120,
+            "height": 60,
+            "zIndex": 10,
+            "data": {
+              "type": "tm.Actor",
+              "name": "User (Browser)",
+              "description": "End user accessing the SSO portal via web browser.",
+              "outOfScope": false
+            }
+          },
+
+          {
+            "type": "tm.Actor",
+            "id": "actor-2",
+            "label": "Attacker",
+            "x": 80,
+            "y": 380,
+            "width": 120,
+            "height": 60,
+            "zIndex": 10,
+            "data": {
+              "type": "tm.Actor",
+              "name": "Attacker",
+              "description": "External threat actor attempting unauthorized access via brute force, session replay, or token forgery.",
+              "outOfScope": false
+            }
+          },
+
+          {
+            "type": "tm.Process",
+            "id": "proc-4",
+            "label": "Connected\nApplications",
+            "x": 560,
+            "y": 380,
+            "width": 160,
+            "height": 60,
+            "zIndex": 10,
+            "data": {
+              "type": "tm.Process",
+              "name": "Connected Applications",
+              "description": "Internal applications (intranet, tools) that rely on the SSO portal for authentication.",
+              "outOfScope": false,
+              "threats": [
+                {
+                  "id": "t-17",
+                  "title": "App trusts forged identity token",
+                  "type": "Spoofing",
+                  "status": "Open",
+                  "severity": "Critical",
+                  "description": "A connected app accepts a forged or tampered identity token without verifying the IdP signature.",
+                  "mitigation": "All connected apps must validate token signature against IdP public key (RS256). Reject tokens with invalid signature, expired exp, or mismatched aud claim.",
+                  "modelType": "STRIDE"
+                },
+                {
+                  "id": "t-18",
+                  "title": "App grants excessive permissions from token claims",
+                  "type": "Elevation of Privilege",
+                  "status": "Open",
+                  "severity": "High",
+                  "description": "Connected app blindly trusts role or permission claims in the token without enforcing its own access controls.",
+                  "mitigation": "Apps must enforce least privilege independently. Do not rely solely on token claims for authorization decisions.",
+                  "modelType": "STRIDE"
+                }
+              ]
+            }
+          },
+
+          {
+            "type": "tm.Actor",
+            "id": "actor-3",
+            "label": "HIBP API",
+            "x": 80,
+            "y": 60,
+            "width": 120,
+            "height": 60,
+            "zIndex": 10,
+            "data": {
+              "type": "tm.Actor",
+              "name": "HaveIBeenPwned API",
+              "description": "External API used to check password hashes against known breach databases using k-anonymity model.",
+              "outOfScope": false
+            }
+          },
+
+          {
+            "type": "tm.Actor",
+            "id": "actor-4",
+            "label": "Email Service",
+            "x": 80,
+            "y": 540,
+            "width": 120,
+            "height": 60,
+            "zIndex": 10,
+            "data": {
+              "type": "tm.Actor",
+              "name": "Email Service",
+              "description": "External email delivery service used for password reset links and security notifications.",
+              "outOfScope": false
+            }
+          },
+
+          {
+            "type": "tm.Actor",
+            "id": "actor-5",
+            "label": "MFA Provider",
+            "x": 560,
+            "y": 60,
+            "width": 120,
+            "height": 60,
+            "zIndex": 10,
+            "data": {
+              "type": "tm.Actor",
+              "name": "MFA Provider",
+              "description": "TOTP authenticator app or push notification provider used for multi-factor authentication.",
+              "outOfScope": false
+            }
+          },
+
+          {
+            "type": "tm.Flow",
+            "id": "flow-1",
+            "source": { "id": "actor-1" },
+            "target": { "id": "proc-1" },
+            "label": "HTTPS login request",
+            "zIndex": 5,
+            "data": {
+              "type": "tm.Flow",
+              "name": "HTTPS login request",
+              "description": "User submits credentials over HTTPS.",
+              "outOfScope": false,
+              "isBidirectional": false,
+              "isEncrypted": true,
+              "protocol": "HTTPS",
+              "isPublicNetwork": true
+            }
+          },
+          {
+            "type": "tm.Flow",
+            "id": "flow-2",
+            "source": { "id": "proc-1" },
+            "target": { "id": "store-1" },
+            "label": "Session read/write",
+            "zIndex": 5,
+            "data": {
+              "type": "tm.Flow",
+              "name": "Session read/write",
+              "description": "SSO portal reads and writes session records to the database.",
+              "outOfScope": false,
+              "isEncrypted": true,
+              "protocol": "Internal"
+            }
+          },
+          {
+            "type": "tm.Flow",
+            "id": "flow-3",
+            "source": { "id": "proc-2" },
+            "target": { "id": "actor-3" },
+            "label": "SHA-1 prefix check",
+            "zIndex": 5,
+            "data": {
+              "type": "tm.Flow",
+              "name": "HIBP k-anonymity check",
+              "description": "First 5 chars of SHA-1 password hash sent to HIBP API. Full hash never transmitted.",
+              "outOfScope": false,
+              "isEncrypted": true,
+              "protocol": "HTTPS",
+              "isPublicNetwork": true
+            }
+          },
+          {
+            "type": "tm.Flow",
+            "id": "flow-4",
+            "source": { "id": "proc-2" },
+            "target": { "id": "actor-4" },
+            "label": "Reset link email",
+            "zIndex": 5,
+            "data": {
+              "type": "tm.Flow",
+              "name": "Password reset email",
+              "description": "Single-use reset link with 128-bit token sent to registered email.",
+              "outOfScope": false,
+              "isEncrypted": true,
+              "protocol": "SMTP/TLS"
+            }
+          },
+          {
+            "type": "tm.Flow",
+            "id": "flow-5",
+            "source": { "id": "proc-1" },
+            "target": { "id": "proc-3" },
+            "label": "Logout event",
+            "zIndex": 5,
+            "data": {
+              "type": "tm.Flow",
+              "name": "Logout trigger to SLO",
+              "description": "User logout triggers SLO process to broadcast signed JWT logout token.",
+              "outOfScope": false,
+              "isEncrypted": true,
+              "protocol": "Internal"
+            }
+          },
+          {
+            "type": "tm.Flow",
+            "id": "flow-6",
+            "source": { "id": "proc-3" },
+            "target": { "id": "proc-4" },
+            "label": "Back-channel logout token",
+            "zIndex": 5,
+            "data": {
+              "type": "tm.Flow",
+              "name": "Back-channel SLO",
+              "description": "Signed JWT logout token POSTed to connected app back-channel endpoints.",
+              "outOfScope": false,
+              "isEncrypted": true,
+              "protocol": "HTTPS"
+            }
+          },
+          {
+            "type": "tm.Flow",
+            "id": "flow-7",
+            "source": { "id": "proc-1" },
+            "target": { "id": "actor-5" },
+            "label": "MFA challenge",
+            "zIndex": 5,
+            "data": {
+              "type": "tm.Flow",
+              "name": "MFA verification",
+              "description": "SSO portal sends MFA challenge to TOTP provider or push notification service.",
+              "outOfScope": false,
+              "isEncrypted": true,
+              "protocol": "HTTPS"
+            }
+          },
+
+          {
+            "type": "tm.Boundary",
+            "id": "boundary-1",
+            "label": "Internet / Intranet boundary",
+            "x": 240,
+            "y": 30,
+            "width": 4,
+            "height": 600,
+            "zIndex": 1,
+            "data": {
+              "type": "tm.Boundary",
+              "name": "Internet / Intranet boundary"
+            }
+          },
+          {
+            "type": "tm.Boundary",
+            "id": "boundary-2",
+            "label": "SSO / Connected apps boundary",
+            "x": 510,
+            "y": 30,
+            "width": 4,
+            "height": 600,
+            "zIndex": 1,
+            "data": {
+              "type": "tm.Boundary",
+              "name": "SSO / Connected apps boundary"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
